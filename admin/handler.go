@@ -28,6 +28,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/codex2api/auth"
@@ -1990,15 +1991,20 @@ func normalizeAccountModelMapping(raw string) (string, error) {
 		if err := security.ValidateModelName(strings.TrimSpace(key)); err != nil {
 			return "", fmt.Errorf("模型映射的源模型 %q 无效: %w", key, err)
 		}
-		var value string
-		if err := dec.Decode(&value); err != nil {
-			return "", fmt.Errorf("模型映射的目标模型必须是字符串")
+		alias := strings.TrimSpace(key)
+		var rawValue any
+		if err := dec.Decode(&rawValue); err != nil {
+			return "", fmt.Errorf("模型映射的目标模型格式错误")
 		}
-		if strings.TrimSpace(value) == "" {
+		target, err := modelMappingTargetName(alias, rawValue)
+		if err != nil {
+			return "", err
+		}
+		if target == "" {
 			return "", fmt.Errorf("模型映射的目标模型不能为空")
 		}
-		if err := security.ValidateModelName(strings.TrimSpace(value)); err != nil {
-			return "", fmt.Errorf("模型映射的目标模型 %q 无效: %w", value, err)
+		if err := security.ValidateModelName(target); err != nil {
+			return "", fmt.Errorf("模型映射的目标模型 %q 无效: %w", target, err)
 		}
 	}
 	endTok, err := dec.Token()
@@ -2014,6 +2020,63 @@ func normalizeAccountModelMapping(raw string) (string, error) {
 		return "", fmt.Errorf("模型映射只能包含一个 JSON 对象")
 	}
 	return raw, nil
+}
+
+// modelMappingDisplayNameMaxLength 是 display_name 的字符上限。展示名只出现在
+// /v1/models 响应里，给它一个宽松但有界的长度即可。
+const modelMappingDisplayNameMaxLength = 64
+
+// modelMappingTargetName 取出映射值里的上游模型名，并顺带校验对象写法的可选字段。
+// 值支持两种写法：字符串 "upstream"（旧格式），或对象
+// {"name":"upstream","display_name":"...","fork":true,"force_mapping":true}。
+// 未识别的键一律忽略，方便以后加字段时无需同步改这里。
+func modelMappingTargetName(alias string, rawValue any) (string, error) {
+	switch value := rawValue.(type) {
+	case string:
+		return strings.TrimSpace(value), nil
+	case map[string]any:
+		name, ok := value["name"].(string)
+		if !ok {
+			return "", fmt.Errorf("模型映射 %q 的对象写法必须包含字符串 name 字段", alias)
+		}
+		if raw, exists := value["display_name"]; exists {
+			displayName, ok := raw.(string)
+			if !ok {
+				return "", fmt.Errorf("模型映射 %q 的 display_name 必须是字符串", alias)
+			}
+			if err := validateModelMappingDisplayName(alias, displayName); err != nil {
+				return "", err
+			}
+		}
+		for _, flagKey := range []string{"fork", "force_mapping"} {
+			if raw, exists := value[flagKey]; exists {
+				if _, ok := raw.(bool); !ok {
+					return "", fmt.Errorf("模型映射 %q 的 %s 必须是布尔值", alias, flagKey)
+				}
+			}
+		}
+		return strings.TrimSpace(name), nil
+	default:
+		return "", fmt.Errorf("模型映射 %q 的目标模型必须是字符串或对象", alias)
+	}
+}
+
+// validateModelMappingDisplayName 只拦长度与控制字符：这是展示标签而不是模型名，
+// 允许空格和中文，所以不能套 security.ValidateModelName。
+func validateModelMappingDisplayName(alias string, displayName string) error {
+	displayName = strings.TrimSpace(displayName)
+	if displayName == "" {
+		return nil
+	}
+	if utf8.RuneCountInString(displayName) > modelMappingDisplayNameMaxLength {
+		return fmt.Errorf("模型映射 %q 的 display_name 不能超过 %d 个字符", alias, modelMappingDisplayNameMaxLength)
+	}
+	for _, r := range displayName {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("模型映射 %q 的 display_name 不能包含控制字符", alias)
+		}
+	}
+	return nil
 }
 
 func isValidHeaderName(name string) bool {

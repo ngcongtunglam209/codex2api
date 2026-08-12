@@ -309,6 +309,9 @@ func applyClaudeCooldown(store *auth.Store, account *auth.Account, statusCode in
 // 与 /v1/models 的注册保持一致，否则通用 Key 在模型列表里看得到却永远调度不到。
 func DefaultClaudeModelIDs() []string {
 	return []string{
+		"claude-opus-5",
+		"claude-sonnet-5",
+		"claude-fable-5",
 		"claude-opus-4-5",
 		"claude-sonnet-4-5",
 		"claude-haiku-4-5",
