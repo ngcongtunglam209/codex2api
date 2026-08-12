@@ -577,6 +577,7 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 	r.GET("/p/backgrounds/:filename", h.GetBackgroundAssetFile)
 	r.HEAD("/p/backgrounds/:filename", h.GetBackgroundAssetFile)
 	r.GET("/api/branding", h.GetBranding)
+	r.GET("/api/pricing", h.GetPublicPricing)
 	keyUsage := r.Group("/api/key-usage")
 	keyUsage.GET("/summary", h.GetPublicAPIKeyUsageSummary)
 	keyUsage.GET("/me", h.GetPublicAPIKeyUsageSummary)
@@ -7736,6 +7737,7 @@ type settingsResponse struct {
 	PublicImageStudioPageEnabled       bool                             `json:"public_image_studio_page_enabled"`
 	PublicAccountPortalPageEnabled     bool                             `json:"public_account_portal_page_enabled"`
 	PublicHomePageEnabled              bool                             `json:"public_home_page_enabled"`
+	PublicPricingConfig                string                           `json:"public_pricing_config"`
 	ImageStorageBackend                string                           `json:"image_storage_backend"`
 	ImageS3Endpoint                    string                           `json:"image_s3_endpoint"`
 	ImageS3Region                      string                           `json:"image_s3_region"`
@@ -7870,6 +7872,7 @@ type updateSettingsReq struct {
 	PublicImageStudioPageEnabled        *bool    `json:"public_image_studio_page_enabled"`
 	PublicAccountPortalPageEnabled      *bool    `json:"public_account_portal_page_enabled"`
 	PublicHomePageEnabled               *bool    `json:"public_home_page_enabled"`
+	PublicPricingConfig                 *string  `json:"public_pricing_config"`
 	ImageStorageBackend                 *string  `json:"image_storage_backend"`
 	ImageS3Endpoint                     *string  `json:"image_s3_endpoint"`
 	ImageS3Region                       *string  `json:"image_s3_region"`
@@ -8443,6 +8446,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 	publicImageStudioPageEnabled := true
 	publicAccountPortalPageEnabled := false
 	publicHomePageEnabled := true
+	publicPricingConfig := "{}"
 	if dbSettings != nil && adminAuthSource != "env" {
 		adminSecret = dbSettings.AdminSecret
 	}
@@ -8454,6 +8458,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 		publicImageStudioPageEnabled = dbSettings.PublicImageStudioPageEnabled
 		publicAccountPortalPageEnabled = dbSettings.PublicAccountPortalPageEnabled
 		publicHomePageEnabled = dbSettings.PublicHomePageEnabled
+		publicPricingConfig = database.NormalizePublicPricingConfigJSON(dbSettings.PublicPricingConfig)
 	}
 	promptFilterCfg := h.store.GetPromptFilterConfig()
 	promptFilterAdvancedRaw := h.store.GetPromptFilterAdvancedConfig()
@@ -8601,6 +8606,7 @@ func (h *Handler) GetSettings(c *gin.Context) {
 		PublicImageStudioPageEnabled:        publicImageStudioPageEnabled,
 		PublicAccountPortalPageEnabled:      publicAccountPortalPageEnabled,
 		PublicHomePageEnabled:               publicHomePageEnabled,
+		PublicPricingConfig:                 publicPricingConfig,
 		ImageStorageBackend:                 imgCfg.Backend,
 		ImageS3Endpoint:                     imgCfg.Endpoint,
 		ImageS3Region:                       imgCfg.Region,
@@ -8886,6 +8892,7 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 	publicImageStudioPageEnabled := true
 	publicAccountPortalPageEnabled := false
 	publicHomePageEnabled := true
+	publicPricingConfig := "{}"
 	modelPricingOverrides := "{}"
 	modelPricingSyncURL := ""
 	persistedAutoResetCreditsEnabled := false
@@ -8906,6 +8913,7 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 		publicImageStudioPageEnabled = existingSettings.PublicImageStudioPageEnabled
 		publicAccountPortalPageEnabled = existingSettings.PublicAccountPortalPageEnabled
 		publicHomePageEnabled = existingSettings.PublicHomePageEnabled
+		publicPricingConfig = database.NormalizePublicPricingConfigJSON(existingSettings.PublicPricingConfig)
 		modelPricingOverrides = existingSettings.ModelPricingOverrides
 		modelPricingSyncURL = existingSettings.ModelPricingSyncURL
 		persistedAutoResetCreditsEnabled = existingSettings.AutoResetCreditsEnabled
@@ -9474,6 +9482,15 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 		publicHomePageEnabled = *req.PublicHomePageEnabled
 		log.Printf("设置已更新: public_home_page_enabled = %t", publicHomePageEnabled)
 	}
+	if req.PublicPricingConfig != nil {
+		normalized, err := sanitizePublicPricingConfig(*req.PublicPricingConfig)
+		if err != nil {
+			writeError(c, http.StatusBadRequest, "public_pricing_config: "+err.Error())
+			return
+		}
+		publicPricingConfig = normalized
+		log.Printf("设置已更新: public_pricing_config (%d 行)", publicPricingRowCount(normalized))
+	}
 	if req.AutoPause5hThreshold != nil || req.AutoPause7dThreshold != nil {
 		t5h := h.store.GetGlobalAutoPause5hThreshold()
 		t7d := h.store.GetGlobalAutoPause7dThreshold()
@@ -9843,6 +9860,7 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 		PublicImageStudioPageEnabled:        publicImageStudioPageEnabled,
 		PublicAccountPortalPageEnabled:      publicAccountPortalPageEnabled,
 		PublicHomePageEnabled:               publicHomePageEnabled,
+		PublicPricingConfig:                 publicPricingConfig,
 		ImageStorageConfig:                  imgConfigJSON,
 		BackgroundConfig:                    encodeBackgroundConfig(bgCfg),
 		GrokConfig:                          encodeGrokConfig(h.store.GetGrokAffinityMode(), h.store.GrokProbeEnabled(), h.store.GrokProbeIntervalMinutes(), h.store.GrokMaxRateLimitRetries(), auth.ConfiguredGrokOAuthClientID()),

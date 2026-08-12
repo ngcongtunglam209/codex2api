@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { api, resetAdminAuthState, setAdminKey } from '../api'
 import { formatBeijingTime, getTimezone, setTimezone } from '../utils/time'
 import PageHeader from '../components/PageHeader'
+import PublicPricingEditor from '../components/PublicPricingEditor'
 import StateShell from '../components/StateShell'
 import { useDataLoader } from '../hooks/useDataLoader'
 import { useToast } from '../hooks/useToast'
@@ -1298,6 +1299,7 @@ export default function Settings() {
     public_image_studio_page_enabled: true,
     public_account_portal_page_enabled: false,
     public_home_page_enabled: true,
+    public_pricing_config: '{}',
     image_storage_backend: 'local',
     image_s3_endpoint: '',
     image_s3_region: '',
@@ -2839,6 +2841,13 @@ export default function Settings() {
                 />
               </SettingField>
             </div>
+          </SettingsCard>
+
+          <SettingsCard title={t('settings.publicPricing')} description={t('settings.publicPricingDesc')} icon={<Layers className="size-4" />}>
+            <PublicPricingEditor
+              value={settingsForm.public_pricing_config}
+              onSaved={(next) => setSettingsForm((current) => ({ ...current, public_pricing_config: next }))}
+            />
           </SettingsCard>
 
           <SettingsCard title={t('settings.overflowAutoCompact')} description={t('settings.overflowAutoCompactDesc')} icon={<Layers className="size-4" />}>

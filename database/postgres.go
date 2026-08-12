@@ -1216,6 +1216,7 @@ func (db *DB) migrate(ctx context.Context) error {
 	ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS public_image_studio_page_enabled BOOLEAN DEFAULT TRUE;
 	ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS public_account_portal_page_enabled BOOLEAN DEFAULT FALSE;
 	ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS public_home_page_enabled BOOLEAN DEFAULT TRUE;
+	ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS public_pricing_config TEXT DEFAULT '{}';
 	ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS codex_force_websocket BOOLEAN DEFAULT FALSE;
 	ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS codex_ws_weak_network_mode BOOLEAN DEFAULT FALSE;
 	ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS codex_ws_keepalive_enabled BOOLEAN DEFAULT FALSE;
@@ -2028,7 +2029,8 @@ type SystemSettings struct {
 	PublicKeyUsagePageEnabled           bool
 	PublicImageStudioPageEnabled        bool
 	PublicAccountPortalPageEnabled      bool // 账号自助添加公开门户开关，默认 false
-	PublicHomePageEnabled               bool // 公开主页 / 公开文档站开关，默认 true
+	PublicHomePageEnabled               bool   // 公开主页 / 公开文档站开关，默认 true
+	PublicPricingConfig                 string // JSON: 公开价目表（对外售价，USD/1M token），默认 "{}"
 	CodexForceWebsocket                 bool // 强制 Codex 上游走 WebSocket（复用连接池），默认 false
 	CodexWSWeakNetworkMode              bool // WS 弱网保守复用模式，默认 false
 	CodexWSKeepaliveEnabled             bool // 启用上游 WS 空闲连接保活（仅 Ping，不发业务帧），默认 false
@@ -2219,6 +2221,7 @@ func (db *DB) GetSystemSettings(ctx context.Context) (*SystemSettings, error) {
 		       COALESCE(public_image_studio_page_enabled, true),
 		       COALESCE(public_account_portal_page_enabled, false),
 		       COALESCE(public_home_page_enabled, true),
+		       COALESCE(public_pricing_config, '{}'),
 			       COALESCE(reasoning_effort_models, '[]'),
 			       COALESCE(codex_force_websocket, false),
 			       COALESCE(codex_ws_keepalive_enabled, false),
@@ -2285,6 +2288,7 @@ func (db *DB) GetSystemSettings(ctx context.Context) (*SystemSettings, error) {
 		&s.PublicImageStudioPageEnabled,
 		&s.PublicAccountPortalPageEnabled,
 		&s.PublicHomePageEnabled,
+		&s.PublicPricingConfig,
 		&s.ReasoningEffortModels,
 		&s.CodexForceWebsocket,
 		&s.CodexWSKeepaliveEnabled,
@@ -2436,9 +2440,10 @@ func (db *DB) UpdateSystemSettings(ctx context.Context, s *SystemSettings) error
 					codex_preflight_sse_passthrough_enabled,
 					utls_shutdown_timeout_minutes,
 					codex_ws_weak_network_mode,
-					public_home_page_enabled
+					public_home_page_enabled,
+					public_pricing_config
 					)
-						VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92, $93, $94, $95, $96, $97, $98, $99, $100, $101, $102, $103, $104, $105, $108)
+						VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46, $47, $48, $49, $50, $51, $52, $53, $54, $55, $56, $57, $58, $59, $60, $61, $62, $63, $64, $65, $66, $67, $68, $69, $70, $71, $72, $73, $74, $75, $76, $77, $78, $79, $80, $81, $82, $83, $84, $85, $86, $87, $88, $89, $90, $91, $92, $93, $94, $95, $96, $97, $98, $99, $100, $101, $102, $103, $104, $105, $108, $109)
 				ON CONFLICT (id) DO UPDATE SET
 				site_name               = EXCLUDED.site_name,
 				site_logo               = EXCLUDED.site_logo,
@@ -2542,7 +2547,8 @@ func (db *DB) UpdateSystemSettings(ctx context.Context, s *SystemSettings) error
 					codex_preflight_sse_passthrough_enabled = EXCLUDED.codex_preflight_sse_passthrough_enabled,
 					utls_shutdown_timeout_minutes = EXCLUDED.utls_shutdown_timeout_minutes,
 					codex_ws_weak_network_mode = EXCLUDED.codex_ws_weak_network_mode,
-					public_home_page_enabled = EXCLUDED.public_home_page_enabled
+					public_home_page_enabled = EXCLUDED.public_home_page_enabled,
+					public_pricing_config = EXCLUDED.public_pricing_config
 			`, NormalizeSiteName(s.SiteName), strings.TrimSpace(s.SiteLogo),
 		s.MaxConcurrency, s.GlobalRPM, s.TestModel, testContent, s.TestConcurrency, s.ProxyURL, s.PgMaxConns, s.RedisPoolSize,
 		s.AutoCleanUnauthorized, s.AutoCleanRateLimited, s.AdminSecret, s.AutoCleanFullUsage, s.ProxyPoolEnabled,
@@ -2582,8 +2588,24 @@ func (db *DB) UpdateSystemSettings(ctx context.Context, s *SystemSettings) error
 		s.PreservePromptFilterReviewAPIKey,
 		// $108：public_home_page_enabled。$106/$107 已被上面两个 preserve 开关占用，
 		// 新增列只能继续往后排号，不能复用 VALUES 末尾的连续编号。
-		s.PublicHomePageEnabled)
+		s.PublicHomePageEnabled,
+		// $109：public_pricing_config
+		NormalizePublicPricingConfigJSON(s.PublicPricingConfig))
 	return err
+}
+
+// NormalizePublicPricingConfigJSON 把公开价目表配置归一：空值与非法 JSON 都落成 "{}"，
+// 避免坏值写进设置行之后让公开价目页整页失败。
+func NormalizePublicPricingConfigJSON(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "{}"
+	}
+	var probe map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &probe); err != nil {
+		return "{}"
+	}
+	return trimmed
 }
 
 // UpdateCodexSyncedCLIVersion 只更新后台同步得到的 Codex CLI 版本，避免用
