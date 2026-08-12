@@ -233,8 +233,14 @@ docker compose -f docker-compose.sqlite.local.yml logs -f codex2api
 
 启动后访问：
 
+- 公开主页：`http://localhost:8080/`（base URL、快速开始、在线状态）
+- 公开文档：`http://localhost:8080/docs`（越南语 / 英文 / 中文）
 - 管理台：`http://localhost:8080/admin/`
 - 健康检查：`http://localhost:8080/health`
+
+公开主页与公开文档是给拿到 API key 的使用者看的：展示 base URL、curl / OpenAI SDK / Anthropic SDK 示例、
+端点清单、错误码，以及各客户端配置（Codex CLI、Claude Code、Cherry Studio 等），不暴露账号池信息。
+可在 `/admin/settings` →「公开主页与文档」关闭；关闭后 `/` 恢复重定向到 `/admin/`，`/docs` 返回 404。
 
 > 更多部署详情请参考：[DEPLOYMENT.md](docs/DEPLOYMENT.md)
 

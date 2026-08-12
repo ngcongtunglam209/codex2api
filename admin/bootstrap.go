@@ -388,6 +388,7 @@ func defaultBootstrapSettings() *database.SystemSettings {
 		GrokConfig:                        `{"affinity_mode":"strict","probe_enabled":false,"probe_interval_minutes":30,"max_rate_limit_retries":0,"oauth_client_id":""}`,
 		PublicKeyUsagePageEnabled:         true,
 		PublicImageStudioPageEnabled:      true,
+		PublicHomePageEnabled:             true,
 		CodexWSHideUpstreamErrors:         true,
 		CodexWSSilentRetryEnabled:         true,
 		CodexWSSilentMaxRetries:           2,
