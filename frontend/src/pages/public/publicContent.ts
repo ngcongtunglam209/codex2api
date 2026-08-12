@@ -34,6 +34,7 @@ const c = (vi: string, en: string, zh: string): Copy => ({ vi, en, zh })
 
 export const nav = {
   docs: c('Tài liệu', 'Docs', '文档'),
+  pricing: c('Bảng giá', 'Pricing', '价格'),
   usage: c('Tra cứu usage', 'Key usage', '用量查询'),
   admin: c('Quản trị', 'Admin', '管理台'),
   getStarted: c('Bắt đầu', 'Get started', '快速开始'),
@@ -187,6 +188,41 @@ console.log(res.choices[0].message.content)`,
        "messages":[{"role":"user","content":"xin chào"}]}'`,
   },
 ]
+
+/* ─────────────────────────── Pricing ─────────────────────────── */
+
+export const pricing = {
+  title: c('Bảng giá', 'Pricing', '价格'),
+  subtitle: c(
+    'Tính theo token thực dùng, đơn vị trên 1 triệu token. Không phí thuê tháng, không tính request rỗng.',
+    'Billed on tokens actually used, quoted per one million tokens. No monthly seat fee, no charge for empty requests.',
+    '按实际用量计费，单位为每百万 token。无月租，不对空请求计费。',
+  ),
+  unit: c('/ 1M token', '/ 1M tokens', '/ 每百万 token'),
+  model: c('Model', 'Model', '模型'),
+  input: c('Input', 'Input', '输入'),
+  cachedInput: c('Input đã cache', 'Cached input', '缓存输入'),
+  output: c('Output', 'Output', '输出'),
+  note: c('Ghi chú', 'Note', '备注'),
+  vndHint: c(
+    'Cột VND là quy đổi tham khảo theo tỷ giá {RATE} ₫/USD; thanh toán chốt theo USD.',
+    'The VND column is a reference conversion at {RATE} ₫/USD; settlement is in USD.',
+    'VND 列按 {RATE} ₫/USD 折算，仅供参考；结算以 USD 为准。',
+  ),
+  cachedHint: c(
+    'Input đã cache áp dụng cho phần prompt lặp lại giữa các lượt — dùng Responses với previous_response_id hoặc prompt caching sẽ rơi vào mức này.',
+    'Cached input applies to prompt prefixes reused across turns — Responses with previous_response_id or prompt caching land in this tier.',
+    '缓存输入适用于多轮之间复用的 prompt 前缀——使用 Responses 的 previous_response_id 或 prompt 缓存会落在该档。',
+  ),
+  howToPay: c('Cách mua', 'How to buy', '如何购买'),
+  empty: c(
+    'Bảng giá chưa được công bố. Liên hệ người vận hành để nhận báo giá.',
+    'The price list is not published yet. Contact the operator for a quote.',
+    '价目表尚未公开，请联系运维获取报价。',
+  ),
+  loadError: c('Không tải được bảng giá.', 'Could not load the price list.', '价目表加载失败。'),
+  ctaDocs: c('Xem tài liệu tích hợp', 'Read the integration docs', '查看接入文档'),
+}
 
 /* ──────────────────────────── Docs ───────────────────────────── */
 

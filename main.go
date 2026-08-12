@@ -501,6 +501,8 @@ func main() {
 		r.GET("/docs/*filepath", servePublicSiteFrontend)
 		r.HEAD("/docs", servePublicSiteFrontend)
 		r.HEAD("/docs/*filepath", servePublicSiteFrontend)
+		r.GET("/pricing", servePublicSiteFrontend)
+		r.HEAD("/pricing", servePublicSiteFrontend)
 	}
 
 	if !frontendReady {

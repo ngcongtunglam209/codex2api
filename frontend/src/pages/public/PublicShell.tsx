@@ -1,6 +1,6 @@
 // 公开站点共享外壳：头部、底部、代码块。
 // 只依赖公开接口（/api/branding、/health），不触碰任何 admin API。
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Check, Copy, Languages, Moon, Sun } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,52 @@ export function usePublicBaseUrls() {
     const base = typeof window === 'undefined' ? '' : window.location.origin
     return { base, api: `${base}/v1` }
   }, [])
+}
+
+export type PublicPricingRow = {
+  model: string
+  input: number
+  cached_input: number
+  output: number
+  badge?: string
+  note?: string
+}
+
+export type PublicPricingConfig = {
+  enabled: boolean
+  usd_to_vnd: number
+  note?: Partial<Record<'vi' | 'en' | 'zh', string>>
+  rows: PublicPricingRow[]
+}
+
+// /api/pricing 在价目表未启用或未填时返回 404。头部导航和价目页都要这份数据，
+// 用模块级 promise 缓存，避免同一次访问打两次请求。
+let pricingRequest: Promise<PublicPricingConfig | null> | null = null
+
+function fetchPublicPricing(): Promise<PublicPricingConfig | null> {
+  if (!pricingRequest) {
+    pricingRequest = fetch('/api/pricing', { headers: { Accept: 'application/json' } })
+      .then((res) => (res.ok ? (res.json() as Promise<PublicPricingConfig>) : null))
+      .catch(() => null)
+  }
+  return pricingRequest
+}
+
+export function usePublicPricing() {
+  const [state, setState] = useState<{ loading: boolean; config: PublicPricingConfig | null }>({
+    loading: true,
+    config: null,
+  })
+  useEffect(() => {
+    let cancelled = false
+    fetchPublicPricing().then((config) => {
+      if (!cancelled) setState({ loading: false, config })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return state
 }
 
 // 把文案 / 代码里的 {BASE}、{API} 占位符换成当前站点地址。
@@ -102,9 +148,10 @@ export function PublicHeader({
 }: {
   locale: PublicLocale
   onCycleLocale: () => void
-  active: 'home' | 'docs'
+  active: 'home' | 'docs' | 'pricing'
 }) {
   const { siteName, siteLogo } = useBranding()
+  const { config: pricingConfig } = usePublicPricing()
   const logoSrc = siteLogo || DEFAULT_SITE_LOGO
   const linkClass = (isActive: boolean) =>
     cn(
@@ -125,6 +172,11 @@ export function PublicHeader({
           <Link to="/docs" className={linkClass(active === 'docs')}>
             {pick(nav.docs, locale)}
           </Link>
+          {pricingConfig ? (
+            <Link to="/pricing" className={linkClass(active === 'pricing')}>
+              {pick(nav.pricing, locale)}
+            </Link>
+          ) : null}
           <a href="/key-usage" className={linkClass(false)}>
             {pick(nav.usage, locale)}
           </a>

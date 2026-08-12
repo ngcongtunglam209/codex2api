@@ -29,6 +29,7 @@ const ModelPricing = lazy(() => import('./pages/ModelPricing'))
 const PayloadRules = lazy(() => import('./pages/PayloadRules'))
 const Landing = lazy(() => import('./pages/Landing'))
 const PublicDocs = lazy(() => import('./pages/PublicDocs'))
+const PublicPricing = lazy(() => import('./pages/PublicPricing'))
 
 // 公开站点（/ 与 /docs）与后台共用同一个 bundle：后台挂在 /admin 前缀下，
 // 其余路径由 Go 侧的公开路由回落到同一个 index.html。
@@ -50,6 +51,7 @@ export default function App() {
                 <Route path="/account-portal/:view" element={<AccountPortal />} />
                 {!isAdminBasePath && <Route path="/" element={<Landing />} />}
                 {!isAdminBasePath && <Route path="/docs" element={<PublicDocs />} />}
+                {!isAdminBasePath && <Route path="/pricing" element={<PublicPricing />} />}
                 <Route
                   path="/*"
                   element={isAdminBasePath ? <AdminApp /> : <Navigate to="/" replace />}

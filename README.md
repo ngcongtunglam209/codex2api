@@ -175,6 +175,7 @@ After startup:
 
 - Public homepage: `http://localhost:8080/` (base URL, quick start, live status)
 - Public API docs: `http://localhost:8080/docs` (Vietnamese / English / Chinese)
+- Public price list: `http://localhost:8080/pricing` (USD per 1M tokens, optional VND column)
 - Admin dashboard: `http://localhost:8080/admin/`
 - Health check: `http://localhost:8080/health`
 
@@ -183,6 +184,13 @@ copy-paste examples for curl / OpenAI SDK / Anthropic SDK, the endpoint list, er
 configs (Codex CLI, Claude Code, Cherry Studio…), and nothing about the account pool. Turn them off in
 `/admin/settings` → *Public Homepage & Docs*; when disabled, `/` redirects to `/admin/` as before and
 `/docs` returns 404.
+
+The price list at `/pricing` is what you charge customers, entered by hand in `/admin/settings` →
+*Public Price List* (USD per 1M tokens for input, cached input and output, plus an optional VND
+conversion rate and a per-language "how to buy" note). It is deliberately separate from
+`/admin/model-pricing`, which holds upstream cost prices used for usage accounting — so publishing a
+price never changes how requests are billed internally. Until a row is added and the list is enabled,
+`/pricing` and `GET /api/pricing` both return 404 and the nav link stays hidden.
 
 Notes:
 

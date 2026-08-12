@@ -235,12 +235,18 @@ docker compose -f docker-compose.sqlite.local.yml logs -f codex2api
 
 - 公开主页：`http://localhost:8080/`（base URL、快速开始、在线状态）
 - 公开文档：`http://localhost:8080/docs`（越南语 / 英文 / 中文）
+- 公开价目表：`http://localhost:8080/pricing`（USD / 每百万 token，可选 VND 折算列）
 - 管理台：`http://localhost:8080/admin/`
 - 健康检查：`http://localhost:8080/health`
 
 公开主页与公开文档是给拿到 API key 的使用者看的：展示 base URL、curl / OpenAI SDK / Anthropic SDK 示例、
 端点清单、错误码，以及各客户端配置（Codex CLI、Claude Code、Cherry Studio 等），不暴露账号池信息。
 可在 `/admin/settings` →「公开主页与文档」关闭；关闭后 `/` 恢复重定向到 `/admin/`，`/docs` 返回 404。
+
+`/pricing` 是对客户的售价，在 `/admin/settings` →「公开价目表」手工维护（输入 / 缓存输入 / 输出的
+USD 每百万 token 单价，另有可选的 VND 折算汇率与分语言的「购买方式」说明）。它与 `/admin/model-pricing`
+的上游成本价完全分开——后者用于用量结算，公开报价不会改变内部计费。未启用或一行都没填时，
+`/pricing` 与 `GET /api/pricing` 均返回 404，导航里也不会出现入口。
 
 > 更多部署详情请参考：[DEPLOYMENT.md](docs/DEPLOYMENT.md)
 
