@@ -202,7 +202,7 @@
     "modelsHint": "回车添加；留空表示不限制模型。",
     "modelsAll": "全部模型",
     "modelMappingLabel": "模型映射（可选）",
-    "modelMappingHint": "每行一条或逗号分隔，例如 claude-3-5-sonnet=claude-sonnet-4-5",
+    "modelMappingHint": "JSON 对象，别名映射到上游模型。字符串写法：{\"claude-opus-5\": \"claude-opus-4-5\"}。对象写法可附带 display_name（/v1/models 里的展示名）、fork（设为 false 时列表只留别名、藏掉上游真名）与 force_mapping（把响应里的模型名改回别名）：{\"claude-opus-5\": {\"name\": \"claude-opus-4-5\", \"display_name\": \"Opus 5\", \"force_mapping\": true}}",
     "generateAuthURL": "获取授权链接",
     "openAuthURL": "打开授权页",
     "copyAuthURL": "复制链接",

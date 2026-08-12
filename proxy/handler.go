@@ -5900,14 +5900,21 @@ func (h *Handler) ListModels(c *gin.Context) {
 		ctx = c.Request.Context()
 	}
 	modelIDs := h.supportedModelIDs(ctx)
+	// 映射规则的展示层加工：display_name 与 "fork": false 隐藏上游真名。
+	// 只作用于这份列表，模型校验仍走 supportedModelIDs 全集。
+	presentation := newModelListingPresentation(h.modelListingRules())
 	models := make([]api.Model, 0, len(modelIDs))
 	now := time.Now().Unix()
 	for _, id := range modelIDs {
+		if presentation.Hidden(id) {
+			continue
+		}
 		models = append(models, api.Model{
-			ID:      id,
-			Object:  "model",
-			Created: now,
-			OwnedBy: "openai",
+			ID:          id,
+			Object:      "model",
+			Created:     now,
+			OwnedBy:     "openai",
+			DisplayName: presentation.DisplayName(id),
 		})
 	}
 	api.SendList(c, "list", models)
@@ -5926,6 +5933,12 @@ func (h *Handler) supportedModelIDs(ctx context.Context) []string {
 			// 出现在 /v1/models（否则下游客户端拉不到可用的 Grok 模型名）。
 			if len(declared) == 0 && account.IsGrokAPI() {
 				declared = DefaultGrokModelIDsForAccount(account)
+			}
+			// 同理，未声明 models 白名单的 Claude 账号补默认 Claude 模型集：
+			// 调度侧（handler_claude.go）本就按 DefaultClaudeModelIDs 放行，这里不补的话
+			// 模型既不进 /v1/models 也过不了模型校验，等于永远调度不到。
+			if len(declared) == 0 && account.IsClaudeAPI() {
+				declared = DefaultClaudeModelIDs()
 			}
 			for _, model := range declared {
 				key := strings.ToLower(strings.TrimSpace(model))

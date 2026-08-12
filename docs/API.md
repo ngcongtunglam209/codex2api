@@ -309,8 +309,21 @@ data: [DONE]
     { "id": "gpt-5.3-codex", "object": "model", "owned_by": "openai" },
     { "id": "gpt-5.3-codex-spark", "object": "model", "owned_by": "openai" },
     { "id": "gpt-5.2", "object": "model", "owned_by": "openai" },
-    { "id": "gpt-image-2", "object": "model", "owned_by": "openai" }
+    { "id": "gpt-image-2", "object": "model", "owned_by": "openai" },
+    { "id": "claude-opus-5", "object": "model", "owned_by": "openai", "display_name": "Opus 5" }
   ]
+}
+```
+
+**模型映射对列表的影响:** 映射值写成对象时可附带三个可选字段。`display_name`
+只给该条目加一个同名字段，未配置的条目响应形状完全不变。`fork` 缺省为 true，
+即别名与上游真名同时列出（与历史行为一致）；显式写 `false` 时该上游真名不再出现
+在本列表里，但模型校验与调度仍用完整集合，原本能跑的请求不会因此被判
+`unsupported_model`。`force_mapping` 不影响本接口，只改 `/v1/messages` 响应里的模型名。
+
+```json
+{
+  "claude-opus-5": { "name": "claude-opus-4-5", "display_name": "Opus 5", "fork": false, "force_mapping": true }
 }
 ```
 

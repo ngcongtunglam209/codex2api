@@ -202,7 +202,7 @@
     "modelsHint": "Press Enter to add. Leave empty to accept every Claude model.",
     "modelsAll": "All models",
     "modelMappingLabel": "Model mapping (optional)",
-    "modelMappingHint": "One mapping per line or comma separated, e.g. claude-3-5-sonnet=claude-sonnet-4-5",
+    "modelMappingHint": "JSON object mapping alias to upstream model. String form: {\"claude-opus-5\": \"claude-opus-4-5\"}. Object form adds display_name (label shown in /v1/models), fork (set false to hide the upstream name from that list) and force_mapping (rewrite the model in responses back to the alias): {\"claude-opus-5\": {\"name\": \"claude-opus-4-5\", \"display_name\": \"Opus 5\", \"force_mapping\": true}}",
     "generateAuthURL": "Get authorization link",
     "openAuthURL": "Open authorization page",
     "copyAuthURL": "Copy link",

@@ -133,6 +133,36 @@ const DEFAULT_CODEX_UA_CONFIG: Required<CodexUserAgentConfig> = {
 const getDefaultModelMappingEntries = (): ModelMappingEntry[] =>
   Object.entries(DEFAULT_CLAUDE_MODEL_MAP) as ModelMappingEntry[]
 
+// 映射值支持对象写法 {"name":...,"display_name":...,"fork":...,"force_mapping":...}。
+// 这个行编辑器只编辑 name，其余标志没有对应控件；解析时把整个对象留存下来，
+// 序列化时原样带回，否则在设置页点一次保存就会把这些标志洗掉。
+type ModelMappingObjectValue = Record<string, unknown>
+
+const modelMappingTargetName = (model: unknown): string => {
+  if (typeof model === 'string') return model
+  if (model && typeof model === 'object' && !Array.isArray(model)) {
+    const name = (model as ModelMappingObjectValue).name
+    return typeof name === 'string' ? name : ''
+  }
+  return String(model ?? '')
+}
+
+const extractModelMappingExtras = (value: string): Record<string, ModelMappingObjectValue> => {
+  const extras: Record<string, ModelMappingObjectValue> = {}
+  try {
+    const parsed = JSON.parse(value || '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return extras
+    for (const [key, model] of Object.entries(parsed)) {
+      if (model && typeof model === 'object' && !Array.isArray(model)) {
+        extras[key] = model as ModelMappingObjectValue
+      }
+    }
+  } catch {
+    return extras
+  }
+  return extras
+}
+
 const parseModelMappingEntries = (value: string, fallbackEntries: ModelMappingEntry[] = []): ModelMappingEntry[] => {
   try {
     const parsed = JSON.parse(value || '{}')
@@ -142,7 +172,7 @@ const parseModelMappingEntries = (value: string, fallbackEntries: ModelMappingEn
 
     const entries = Object.entries(parsed).map(([key, model]) => [
       key,
-      typeof model === 'string' ? model : String(model ?? ''),
+      modelMappingTargetName(model),
     ]) as ModelMappingEntry[]
 
     // 如果数据库中为空，按调用方提供的默认值填充
@@ -152,12 +182,18 @@ const parseModelMappingEntries = (value: string, fallbackEntries: ModelMappingEn
   }
 }
 
-const serializeModelMappingEntries = (entries: ModelMappingEntry[]) => {
-  const obj: Record<string, string> = {}
+// extras 按别名键匹配：改名等于换了一条别名，原对象上的标志不再跟随。
+const serializeModelMappingEntries = (
+  entries: ModelMappingEntry[],
+  extras: Record<string, ModelMappingObjectValue> = {},
+) => {
+  const obj: Record<string, string | ModelMappingObjectValue> = {}
   for (const [key, model] of entries) {
     const trimmedKey = key.trim()
     const trimmedModel = model.trim()
-    if (trimmedKey && trimmedModel) obj[trimmedKey] = trimmedModel
+    if (!trimmedKey || !trimmedModel) continue
+    const extra = extras[trimmedKey]
+    obj[trimmedKey] = extra ? { ...extra, name: trimmedModel } : trimmedModel
   }
   return JSON.stringify(obj)
 }
@@ -395,6 +431,10 @@ function ModelMappingEditor({
 }) {
   const { t } = useTranslation()
   const [mappings, setMappings] = useState<ModelMappingEntry[]>(() => parseModelMappingEntries(value, fallbackEntries))
+  // 对象写法里编辑器管不到的字段（display_name / fork / force_mapping）原样留存。
+  const [mappingExtras, setMappingExtras] = useState<Record<string, ModelMappingObjectValue>>(() =>
+    extractModelMappingExtras(value),
+  )
   const lastEmittedValueRef = useRef<string | null>(null)
   const sourceListId = useId()
   const targetListId = useId()
@@ -424,11 +464,12 @@ function ModelMappingEditor({
   useEffect(() => {
     if (value === lastEmittedValueRef.current) return
     setMappings(parseModelMappingEntries(value, fallbackEntries))
+    setMappingExtras(extractModelMappingExtras(value))
   }, [fallbackEntries, value])
 
   const updateMappings = (entries: ModelMappingEntry[]) => {
     setMappings(entries)
-    const serialized = serializeModelMappingEntries(entries)
+    const serialized = serializeModelMappingEntries(entries, mappingExtras)
     lastEmittedValueRef.current = serialized
     onChange(serialized)
   }

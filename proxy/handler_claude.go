@@ -13,6 +13,7 @@ import (
 	"github.com/codex2api/database"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // ==================== /v1/messages → Claude Code 原生上游 ====================
@@ -183,9 +184,13 @@ func (h *Handler) messagesViaClaudeUpstream(c *gin.Context, rawBody []byte, mode
 
 		upstreamBody := rawBody
 		attemptModel := model
+		// force_mapping 打开时，响应里的 model 要改回客户端发来的别名，否则下游会看到
+		// 上游真名。只影响回给客户端的报文，用量日志仍记真实上游模型（见下方 usageLog）。
+		forcedResponseModel := ""
 		if mappedBody, mappedModel, mapped := h.applyAccountModelMappingToBody(upstreamBody, account); mapped {
 			upstreamBody = mappedBody
 			attemptModel = mappedModel
+			forcedResponseModel = forcedResponseModelForAccount(account, model, mappedModel)
 		}
 
 		if lastUpstreamCancel != nil {
@@ -286,7 +291,7 @@ func (h *Handler) messagesViaClaudeUpstream(c *gin.Context, rawBody []byte, mode
 		c.Set("x-account-proxy", proxyURL)
 		c.Set("x-model", attemptModel)
 
-		usage, firstTokenMs, streamErr := h.relayClaudeResponse(c, resp, isStream, start, ttftGuard)
+		usage, firstTokenMs, streamErr := h.relayClaudeResponse(c, resp, isStream, start, ttftGuard, forcedResponseModel)
 		resp.Body.Close()
 		ttftGuard.Stop()
 		h.store.Release(account)
@@ -325,13 +330,51 @@ func (h *Handler) messagesViaClaudeUpstream(c *gin.Context, rawBody []byte, mode
 	}
 }
 
+// rewriteClaudeResponseModel 把非流式响应根字段 model 改成 forcedModel。
+// forcedModel 为空、报文不是合法 JSON 或改写失败时一律返回原始报文——
+// 这条链路是字节级透传，宁可让下游看到上游真名，也不能吐出半截 JSON。
+func rewriteClaudeResponseModel(body []byte, forcedModel string) []byte {
+	if forcedModel == "" || !gjson.ValidBytes(body) {
+		return body
+	}
+	updated, err := sjson.SetBytes(body, "model", forcedModel)
+	if err != nil {
+		return body
+	}
+	return updated
+}
+
+// rewriteClaudeStreamModelLine 把 message_start 事件里的 message.model 改成 forcedModel，
+// 并保留原行尾（\n 或 \r\n），否则 SSE 分帧会被破坏。改写失败返回原行。
+func rewriteClaudeStreamModelLine(line []byte, data string, forcedModel string) []byte {
+	if forcedModel == "" || !gjson.Valid(data) {
+		return line
+	}
+	updated, err := sjson.Set(data, "message.model", forcedModel)
+	if err != nil {
+		return line
+	}
+	lineText := string(line)
+	suffix := ""
+	switch {
+	case strings.HasSuffix(lineText, "\r\n"):
+		suffix = "\r\n"
+	case strings.HasSuffix(lineText, "\n"):
+		suffix = "\n"
+	}
+	return []byte("data: " + updated + suffix)
+}
+
 // relayClaudeResponse 把上游响应原样转给下游，顺带取用量与首字时延。
-func (h *Handler) relayClaudeResponse(c *gin.Context, resp *http.Response, isStream bool, start time.Time, ttftGuard *firstTokenTimeoutGuard) (*UsageInfo, int, error) {
+// forcedResponseModel 非空时（映射规则开了 force_mapping），把响应里的模型名改回
+// 该别名：非流式改根字段 model，流式改 message_start 事件里的 message.model。
+func (h *Handler) relayClaudeResponse(c *gin.Context, resp *http.Response, isStream bool, start time.Time, ttftGuard *firstTokenTimeoutGuard, forcedResponseModel string) (*UsageInfo, int, error) {
 	if !isStream {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
 			return nil, 0, err
 		}
+		body = rewriteClaudeResponseModel(body, forcedResponseModel)
 		ttftGuard.MarkProgress("message")
 		c.Header("Content-Type", "application/json")
 		c.Status(http.StatusOK)
@@ -359,6 +402,7 @@ func (h *Handler) relayClaudeResponse(c *gin.Context, resp *http.Response, isStr
 	for {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
+			outLine := line
 			if data, isData := strings.CutPrefix(strings.TrimRight(string(line), "\r\n"), "data: "); isData {
 				usage.observe(data)
 				eventType := gjson.Get(data, "type").String()
@@ -366,8 +410,11 @@ func (h *Handler) relayClaudeResponse(c *gin.Context, resp *http.Response, isStr
 				if firstTokenMs == 0 && eventType == "content_block_delta" {
 					firstTokenMs = int(time.Since(start).Milliseconds())
 				}
+				if eventType == "message_start" {
+					outLine = rewriteClaudeStreamModelLine(line, data, forcedResponseModel)
+				}
 			}
-			if writeErr := streamWriter.WriteString(string(line)); writeErr != nil {
+			if writeErr := streamWriter.WriteString(string(outLine)); writeErr != nil {
 				return usage.toUsageInfo(), firstTokenMs, writeErr
 			}
 		}

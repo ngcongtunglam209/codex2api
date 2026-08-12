@@ -93,12 +93,15 @@ func SendAccepted(c *gin.Context, data interface{}) {
 
 // Model represents an OpenAI-style model object
 type Model struct {
-	ID         string `json:"id"`
-	Object     string `json:"object"`
-	Created    int64  `json:"created"`
-	OwnedBy    string `json:"owned_by"`
-	Root       string `json:"root,omitempty"`
-	Parent     string `json:"parent,omitempty"`
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+	Root    string `json:"root,omitempty"`
+	Parent  string `json:"parent,omitempty"`
+	// DisplayName 来自模型映射的 display_name，留空则不出现在响应里，
+	// 老客户端看到的字段集合完全不变。
+	DisplayName string `json:"display_name,omitempty"`
 }
 
 // ModelList represents a list of models

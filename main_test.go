@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/gin-gonic/gin"
 )
@@ -169,5 +170,52 @@ func TestLoggerMiddlewareRedactsSensitiveContext(t *testing.T) {
 		if !strings.Contains(got, expected) {
 			t.Fatalf("log output missing %q: %s", expected, got)
 		}
+	}
+}
+
+// 回归：前端构建产物曾挂在 /admin/ 下，保护 /admin 的网关（Cloudflare Access 等）
+// 会连带拦掉公开主页的 JS，导致白屏。产物改挂根目录，且不得回退成 index.html。
+func TestBuildAssetHandlerServesAssetsOutsideAdminPrefix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const bundle = "console.log('ok')"
+	subFS := fstest.MapFS{
+		"index.html":             {Data: []byte("<!doctype html><div id=root></div>")},
+		"favicon.png":            {Data: []byte("\x89PNG")},
+		"assets/index-abc123.js": {Data: []byte(bundle)},
+	}
+
+	r := gin.New()
+	h := newBuildAssetHandler(subFS, http.FS(subFS))
+	r.GET("/assets/*filepath", h)
+	r.GET("/favicon.png", h)
+
+	tests := []struct {
+		name     string
+		path     string
+		wantCode int
+		wantBody string
+	}{
+		{name: "asset served from root", path: "/assets/index-abc123.js", wantCode: http.StatusOK, wantBody: bundle},
+		{name: "favicon served from root", path: "/favicon.png", wantCode: http.StatusOK, wantBody: "\x89PNG"},
+		{name: "missing asset 404s instead of SPA fallback", path: "/assets/gone-000000.js", wantCode: http.StatusNotFound},
+		{name: "directory is not served", path: "/assets/", wantCode: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+			if w.Code != tt.wantCode {
+				t.Fatalf("status = %d, want %d", w.Code, tt.wantCode)
+			}
+			if tt.wantBody != "" && w.Body.String() != tt.wantBody {
+				t.Fatalf("body = %q, want %q", w.Body.String(), tt.wantBody)
+			}
+			if tt.wantCode == http.StatusNotFound && strings.Contains(w.Body.String(), "<!doctype html") {
+				t.Fatalf("missing asset fell back to index.html: %s", w.Body.String())
+			}
+		})
 	}
 }

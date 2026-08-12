@@ -16,6 +16,29 @@ type modelMappingRule struct {
 	Wildcard   bool
 	LiteralLen int
 	StarCount  int
+	// 以下几项来自映射值的对象写法，字符串写法一律取零值（保持旧语义）。
+	DisplayName  string // /v1/models 里展示的名字，留空则用 From
+	Fork         bool   // 同时暴露 From 与 To，而不是用 From 顶替 To
+	ForkSet      bool   // 是否显式写了 fork：没写按 true 处理，即维持历史行为
+	ForceMapping bool   // 把响应里的 model 改回 From，避免下游看到上游真名
+}
+
+// HidesUpstream 表示该规则要求 /v1/models 里只留别名、藏掉上游真名。
+// fork 缺省视为 true（历史行为是别名与真名同时列出），只有显式 "fork": false 才藏。
+func (r modelMappingRule) HidesUpstream() bool {
+	return r.ForkSet && !r.Fork
+}
+
+func modelMappingStringField(obj map[string]any, key string) string {
+	if v, ok := obj[key].(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
+}
+
+func modelMappingBoolField(obj map[string]any, key string) (bool, bool) {
+	v, ok := obj[key].(bool)
+	return v, ok
 }
 
 func parseModelMappingRules(mappingJSON string) []modelMappingRule {
@@ -50,24 +73,39 @@ func parseModelMappingRules(mappingJSON string) []modelMappingRule {
 		if err := dec.Decode(&rawValue); err != nil {
 			return nil
 		}
-		value, ok := rawValue.(string)
-		if !ok {
+		// 值支持两种写法：字符串 "upstream"（旧格式），或对象
+		// {"name":"upstream","display_name":"...","fork":true,"force_mapping":true}。
+		// 对象写法此前会被静默跳过，因此新增解析不会改变任何既有配置的行为。
+		var to, displayName string
+		var fork, forkSet, forceMapping bool
+		switch value := rawValue.(type) {
+		case string:
+			to = strings.TrimSpace(value)
+		case map[string]any:
+			to = modelMappingStringField(value, "name")
+			displayName = modelMappingStringField(value, "display_name")
+			fork, forkSet = modelMappingBoolField(value, "fork")
+			forceMapping, _ = modelMappingBoolField(value, "force_mapping")
+		default:
 			continue
 		}
 
 		from := strings.TrimSpace(key)
-		to := strings.TrimSpace(value)
 		if from == "" || to == "" {
 			continue
 		}
 		starCount := strings.Count(from, "*")
 		rules = append(rules, modelMappingRule{
-			From:       from,
-			To:         to,
-			Index:      index,
-			Wildcard:   starCount > 0,
-			LiteralLen: len(strings.ReplaceAll(from, "*", "")),
-			StarCount:  starCount,
+			From:         from,
+			To:           to,
+			Index:        index,
+			Wildcard:     starCount > 0,
+			LiteralLen:   len(strings.ReplaceAll(from, "*", "")),
+			StarCount:    starCount,
+			DisplayName:  displayName,
+			Fork:         fork,
+			ForkSet:      forkSet,
+			ForceMapping: forceMapping,
 		})
 		index++
 	}
@@ -78,19 +116,17 @@ func resolveConfiguredModelMapping(model string, mappingJSON string, supportedMo
 	return resolveModelMappingFromRules(model, parseModelMappingRules(mappingJSON), supportedModels)
 }
 
-func resolveModelMappingFromRules(model string, rules []modelMappingRule, supportedModels []string) (string, bool) {
+// matchModelMappingRule 按「精确优先、其次最具体通配」选出命中的规则，未命中返回 nil。
+// 抽出来是为了让 force_mapping 能拿到规则本身，而不只是映射后的模型名。
+func matchModelMappingRule(model string, rules []modelMappingRule) *modelMappingRule {
 	model = strings.TrimSpace(model)
-	if model == "" {
-		return "", false
+	if model == "" || len(rules) == 0 {
+		return nil
 	}
 
-	if len(rules) == 0 {
-		return model, false
-	}
-
-	for _, rule := range rules {
-		if !rule.Wildcard && strings.EqualFold(rule.From, model) {
-			return canonicalizeCodexModel(rule.To, supportedModels), true
+	for i := range rules {
+		if !rules[i].Wildcard && strings.EqualFold(rules[i].From, model) {
+			return &rules[i]
 		}
 	}
 
@@ -104,10 +140,19 @@ func resolveModelMappingFromRules(model string, rules []modelMappingRule, suppor
 			best = rule
 		}
 	}
-	if best != nil {
-		return canonicalizeCodexModel(best.To, supportedModels), true
+	return best
+}
+
+func resolveModelMappingFromRules(model string, rules []modelMappingRule, supportedModels []string) (string, bool) {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return "", false
 	}
-	return model, false
+	rule := matchModelMappingRule(model, rules)
+	if rule == nil {
+		return model, false
+	}
+	return canonicalizeCodexModel(rule.To, supportedModels), true
 }
 
 func isMoreSpecificModelMapping(candidate, current *modelMappingRule) bool {
@@ -227,6 +272,34 @@ func ResolveAccountModelMapping(account *auth.Account, model string) (string, bo
 	return resolveAccountModelMapping(account, model)
 }
 
+// accountModelMappingRule 返回账号级映射里命中该模型的规则本身，未命中返回 nil。
+// force_mapping 需要看规则，而 resolveAccountModelMapping 只给映射后的模型名。
+func accountModelMappingRule(account *auth.Account, model string) *modelMappingRule {
+	model = strings.TrimSpace(model)
+	if account == nil || model == "" {
+		return nil
+	}
+	if len(account.OpenAIResponsesModels()) == 0 {
+		return nil
+	}
+	return matchModelMappingRule(model, parseModelMappingRules(account.OpenAIResponsesModelMapping()))
+}
+
+// forcedResponseModelForAccount 在命中规则开了 force_mapping 时，返回响应里应该
+// 回写的下游模型名（即客户端原本发来的名字）；否则返回空串表示不改写。
+// 用客户端发来的名字而不是 rule.From，是因为通配规则的 From 带 *，不能直接回填。
+func forcedResponseModelForAccount(account *auth.Account, requestedModel string, mappedModel string) string {
+	requestedModel = strings.TrimSpace(requestedModel)
+	if requestedModel == "" || strings.EqualFold(requestedModel, strings.TrimSpace(mappedModel)) {
+		return ""
+	}
+	rule := accountModelMappingRule(account, requestedModel)
+	if rule == nil || !rule.ForceMapping {
+		return ""
+	}
+	return requestedModel
+}
+
 func resolveAccountModelMappingForCandidates(account *auth.Account, models ...string) (string, bool) {
 	seen := make(map[string]struct{}, len(models))
 	for _, model := range models {
@@ -244,6 +317,23 @@ func resolveAccountModelMappingForCandidates(account *auth.Account, models ...st
 		}
 	}
 	return "", false
+}
+
+// accountSupportsMappedModel 判断映射目标是否真的能被该账号承接。
+// Claude 账号被 relayAccountSupportsModel 一律排除（那条路只收 Responses 形态请求体），
+// 但它们的别名同样要进 /v1/models，否则配了映射也看不到、拉不到模型名。
+// 判定口径与 claudeChannelAccountFilter 保持一致：有白名单按白名单，没有按默认集。
+func accountSupportsMappedModel(account *auth.Account, model string) bool {
+	if account == nil {
+		return false
+	}
+	if account.IsClaudeAPI() {
+		if len(account.ClaudeModels()) > 0 {
+			return account.ClaudeChannelSupportsModel(model)
+		}
+		return modelIDInList(model, DefaultClaudeModelIDs())
+	}
+	return relayAccountSupportsModel(account, model)
 }
 
 func accountModelMappingAliases(account *auth.Account) []string {
@@ -264,12 +354,91 @@ func accountModelMappingAliases(account *auth.Account) []string {
 			continue
 		}
 		mappedModel, ok := resolveConfiguredModelMapping(rule.From, account.OpenAIResponsesModelMapping(), accountModels)
-		if !ok || mappedModel == "" || !relayAccountSupportsModel(account, mappedModel) {
+		if !ok || mappedModel == "" || !accountSupportsMappedModel(account, mappedModel) {
 			continue
 		}
 		aliases = append(aliases, rule.From)
 	}
 	return aliases
+}
+
+// modelListingPresentation 是 /v1/models 的展示层加工结果：别名的 display_name，
+// 以及被 "fork": false 藏起来的上游真名。只影响列表展示——模型校验、映射解析和
+// 账号筛选仍用完整的 supportedModelIDs，藏名字不能让已经能跑的请求突然被拒。
+type modelListingPresentation struct {
+	displayNames map[string]string
+	hidden       map[string]struct{}
+}
+
+func (p modelListingPresentation) DisplayName(model string) string {
+	return p.displayNames[strings.ToLower(strings.TrimSpace(model))]
+}
+
+func (p modelListingPresentation) Hidden(model string) bool {
+	_, hidden := p.hidden[strings.ToLower(strings.TrimSpace(model))]
+	return hidden
+}
+
+// newModelListingPresentation 汇总所有非通配规则。通配规则不参与：它的 From 带 *，
+// 本来就不作为具体模型出现在列表里。
+func newModelListingPresentation(rules []modelMappingRule) modelListingPresentation {
+	presentation := modelListingPresentation{
+		displayNames: make(map[string]string),
+		hidden:       make(map[string]struct{}),
+	}
+	aliases := make(map[string]struct{}, len(rules))
+	keepVisible := make(map[string]struct{}, len(rules))
+	for _, rule := range rules {
+		if rule.Wildcard {
+			continue
+		}
+		aliases[strings.ToLower(strings.TrimSpace(rule.From))] = struct{}{}
+		if !rule.HidesUpstream() {
+			keepVisible[strings.ToLower(strings.TrimSpace(rule.To))] = struct{}{}
+		}
+	}
+	for _, rule := range rules {
+		if rule.Wildcard {
+			continue
+		}
+		from := strings.ToLower(strings.TrimSpace(rule.From))
+		if from == "" {
+			continue
+		}
+		if displayName := strings.TrimSpace(rule.DisplayName); displayName != "" {
+			if _, exists := presentation.displayNames[from]; !exists {
+				presentation.displayNames[from] = displayName
+			}
+		}
+		if !rule.HidesUpstream() {
+			continue
+		}
+		to := strings.ToLower(strings.TrimSpace(rule.To))
+		if to == "" || to == from {
+			continue
+		}
+		// 上游名同时是别的规则的别名，或另有规则要求它可见时，一律保留。
+		if _, isAlias := aliases[to]; isAlias {
+			continue
+		}
+		if _, visible := keepVisible[to]; visible {
+			continue
+		}
+		presentation.hidden[to] = struct{}{}
+	}
+	return presentation
+}
+
+// modelListingRules 汇总参与 /v1/models 展示的映射规则：全局映射 + 各账号映射。
+func (h *Handler) modelListingRules() []modelMappingRule {
+	if h == nil || h.store == nil {
+		return nil
+	}
+	rules := parseModelMappingRules(h.store.GetModelMapping())
+	for _, account := range h.store.Accounts() {
+		rules = append(rules, parseModelMappingRules(account.OpenAIResponsesModelMapping())...)
+	}
+	return rules
 }
 
 func (h *Handler) applyAccountModelMappingToBody(rawBody []byte, account *auth.Account) ([]byte, string, bool) {
