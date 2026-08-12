@@ -407,6 +407,7 @@ func main() {
 			// 文件不存在或者是目录 → 直接返回 index.html 字节（让 React Router 处理）
 			c.Data(http.StatusOK, "text/html; charset=utf-8", indexHTML)
 		}
+		serveBuildAsset := newBuildAssetHandler(subFS, httpFS)
 		serveKeyUsageFrontend := func(c *gin.Context) {
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
 			defer cancel()
@@ -478,6 +479,10 @@ func main() {
 			serveFrontend(c)
 		}
 
+		r.GET("/assets/*filepath", serveBuildAsset)
+		r.HEAD("/assets/*filepath", serveBuildAsset)
+		r.GET("/favicon.png", serveBuildAsset)
+		r.HEAD("/favicon.png", serveBuildAsset)
 		// 同时处理 /admin 和 /admin/*，避免依赖自动补斜杠重定向。
 		r.GET("/admin", serveFrontend)
 		r.GET("/admin/*filepath", serveFrontend)
@@ -586,6 +591,27 @@ func main() {
 }
 
 // configureTrustedProxies 配置 Gin 的可信代理列表。
+// newBuildAssetHandler 处理构建产物（/assets/*、/favicon.png）：命中即回文件，未命中直接 404。
+// 这些路径刻意不做 SPA 回退：JS/CSS 请求拿到 200 的 index.html 只会变成语法错误，404 才能暴露问题。
+// 产物挂在站点根目录而非 /admin/ 下，公开主页才不会被保护 /admin 的网关连带拦截。
+func newBuildAssetHandler(subFS fs.FS, httpFS http.FileSystem) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		urlPath := c.Request.URL.Path
+		f, err := subFS.Open(strings.TrimPrefix(urlPath, "/"))
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		fi, statErr := f.Stat()
+		f.Close()
+		if statErr != nil || fi.IsDir() {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.FileFromFS(urlPath, httpFS)
+	}
+}
+
 func configureTrustedProxies(r *gin.Engine, proxies []string) error {
 	if r == nil {
 		return nil

@@ -15,7 +15,9 @@ function getVersion() {
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
-  base: '/admin/',
+  // 构建产物挂在站点根目录：公开主页（/、/docs、/pricing）与管理台共用同一份 index.html，
+  // 若 base 指向 /admin/，保护 /admin 的网关（如 Cloudflare Access）会连带拦掉公开页的 JS。
+  base: '/',
   define: {
     __APP_VERSION__: JSON.stringify(getVersion()),
   },
