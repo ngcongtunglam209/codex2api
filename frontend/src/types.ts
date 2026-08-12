@@ -1361,6 +1361,7 @@ export interface SystemSettings {
   public_key_usage_page_enabled: boolean
   public_image_studio_page_enabled: boolean
   public_account_portal_page_enabled: boolean
+  public_home_page_enabled: boolean
   image_storage_backend: 'local' | 's3' | string
   image_s3_endpoint: string
   image_s3_region: string

@@ -173,8 +173,16 @@ docker compose -f docker-compose.sqlite.local.yml logs -f codex2api
 
 After startup:
 
+- Public homepage: `http://localhost:8080/` (base URL, quick start, live status)
+- Public API docs: `http://localhost:8080/docs` (Vietnamese / English / Chinese)
 - Admin dashboard: `http://localhost:8080/admin/`
 - Health check: `http://localhost:8080/health`
+
+The public homepage and docs are meant for the people you hand API keys to: they show the base URL,
+copy-paste examples for curl / OpenAI SDK / Anthropic SDK, the endpoint list, error codes and client
+configs (Codex CLI, Claude Code, Cherry Studio…), and nothing about the account pool. Turn them off in
+`/admin/settings` → *Public Homepage & Docs*; when disabled, `/` redirects to `/admin/` as before and
+`/docs` returns 404.
 
 Notes:
 

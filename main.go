@@ -110,6 +110,7 @@ func main() {
 			ImageStorageConfig:                "{}",
 			PublicKeyUsagePageEnabled:         true,
 			PublicImageStudioPageEnabled:      true,
+			PublicHomePageEnabled:             true,
 			CodexWSHideUpstreamErrors:         true,
 			CodexWSSilentRetryEnabled:         true,
 			CodexWSSilentMaxRetries:           2,
@@ -161,6 +162,7 @@ func main() {
 			ImageStorageConfig:                "{}",
 			PublicKeyUsagePageEnabled:         true,
 			PublicImageStudioPageEnabled:      true,
+			PublicHomePageEnabled:             true,
 			CodexWSHideUpstreamErrors:         true,
 			CodexWSSilentRetryEnabled:         true,
 			CodexWSSilentMaxRetries:           2,
@@ -378,10 +380,12 @@ func main() {
 	adminHandler.RegisterRoutes(r)
 
 	// 管理后台前端静态文件
+	frontendReady := false
 	subFS, err := fs.Sub(frontendFS, "frontend/dist")
 	if err != nil {
 		log.Printf("前端静态文件加载失败（开发模式可忽略）: %v", err)
 	} else {
+		frontendReady = true
 		httpFS := http.FS(subFS)
 		// 预读 index.html（SPA 回退时直接返回，避免 FileServer 重定向）
 		indexHTML, _ := fs.ReadFile(subFS, "index.html")
@@ -452,6 +456,28 @@ func main() {
 			serveFrontend(c)
 		}
 
+		// 公开主页 / 公开文档站：开关关闭时根路径回落到管理台，/docs 返回 404。
+		servePublicSiteFrontend := func(c *gin.Context) {
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 3*time.Second)
+			defer cancel()
+
+			enabled, err := adminHandler.PublicHomePageEnabled(ctx)
+			if err != nil {
+				log.Printf("读取公开主页开关失败: %v", err)
+				c.Status(http.StatusInternalServerError)
+				return
+			}
+			if !enabled {
+				if c.Request.URL.Path == "/" {
+					c.Redirect(http.StatusFound, "/admin/")
+					return
+				}
+				c.Status(http.StatusNotFound)
+				return
+			}
+			serveFrontend(c)
+		}
+
 		// 同时处理 /admin 和 /admin/*，避免依赖自动补斜杠重定向。
 		r.GET("/admin", serveFrontend)
 		r.GET("/admin/*filepath", serveFrontend)
@@ -469,12 +495,20 @@ func main() {
 		r.GET("/account-portal/*filepath", serveAccountPortalFrontend)
 		r.HEAD("/account-portal", serveAccountPortalFrontend)
 		r.HEAD("/account-portal/*filepath", serveAccountPortalFrontend)
+		r.GET("/", servePublicSiteFrontend)
+		r.HEAD("/", servePublicSiteFrontend)
+		r.GET("/docs", servePublicSiteFrontend)
+		r.GET("/docs/*filepath", servePublicSiteFrontend)
+		r.HEAD("/docs", servePublicSiteFrontend)
+		r.HEAD("/docs/*filepath", servePublicSiteFrontend)
 	}
 
-	// 根路径重定向到管理后台（使用 302 避免浏览器永久缓存）
-	r.GET("/", func(c *gin.Context) {
-		c.Redirect(http.StatusFound, "/admin/")
-	})
+	if !frontendReady {
+		// 前端产物缺失（开发模式）时保持旧行为：根路径重定向到管理后台。
+		r.GET("/", func(c *gin.Context) {
+			c.Redirect(http.StatusFound, "/admin/")
+		})
+	}
 
 	// 健康检查
 	r.GET("/health", func(c *gin.Context) {

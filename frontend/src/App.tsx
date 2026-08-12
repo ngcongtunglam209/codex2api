@@ -27,6 +27,12 @@ const PromptFilter = lazy(() => import('./pages/PromptFilter'))
 const ThemeSettings = lazy(() => import('./pages/ThemeSettings'))
 const ModelPricing = lazy(() => import('./pages/ModelPricing'))
 const PayloadRules = lazy(() => import('./pages/PayloadRules'))
+const Landing = lazy(() => import('./pages/Landing'))
+const PublicDocs = lazy(() => import('./pages/PublicDocs'))
+
+// 公开站点（/ 与 /docs）与后台共用同一个 bundle：后台挂在 /admin 前缀下，
+// 其余路径由 Go 侧的公开路由回落到同一个 index.html。
+const isAdminBasePath = typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')
 
 export default function App() {
   return (
@@ -42,7 +48,12 @@ export default function App() {
                 <Route path="/image-studio/:view" element={<ImageStudioPortal />} />
                 <Route path="/account-portal" element={<Navigate to="/account-portal/submit" replace />} />
                 <Route path="/account-portal/:view" element={<AccountPortal />} />
-                <Route path="/*" element={<AdminApp />} />
+                {!isAdminBasePath && <Route path="/" element={<Landing />} />}
+                {!isAdminBasePath && <Route path="/docs" element={<PublicDocs />} />}
+                <Route
+                  path="/*"
+                  element={isAdminBasePath ? <AdminApp /> : <Navigate to="/" replace />}
+                />
               </Routes>
             </Suspense>
           </RouteErrorBoundary>

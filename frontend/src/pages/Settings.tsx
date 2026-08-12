@@ -1297,6 +1297,7 @@ export default function Settings() {
     public_key_usage_page_enabled: true,
     public_image_studio_page_enabled: true,
     public_account_portal_page_enabled: false,
+    public_home_page_enabled: true,
     image_storage_backend: 'local',
     image_s3_endpoint: '',
     image_s3_region: '',
@@ -2826,6 +2827,17 @@ export default function Settings() {
                   />
                 </SettingField>
               </div>
+            </div>
+          </SettingsCard>
+
+          <SettingsCard title={t('settings.publicHomePage')} description={t('settings.publicHomePageDesc')} icon={<Layers className="size-4" />}>
+            <div className={SETTINGS_SWITCH_GRID}>
+              <SettingField label={t('settings.publicHomePageEnabled')} description={t('settings.publicHomePageEnabledDesc')} layout="switch">
+                <Switch
+                  checked={settingsForm.public_home_page_enabled}
+                  onCheckedChange={(checked) => autoSaveBooleanField('public_home_page_enabled', checked)}
+                />
+              </SettingField>
             </div>
           </SettingsCard>
 
